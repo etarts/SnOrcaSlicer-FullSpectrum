@@ -584,6 +584,7 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     }
 
     ImGui::Dummy(ImVec2(0.0f, ImGui::GetFontSize() * 0.1));
+    m_imgui->bbl_checkbox(_L("Two-sided"), m_two_sided_painting);
 
     if (m_current_tool != old_tool)
         this->tool_changed(old_tool, m_current_tool);

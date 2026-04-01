@@ -12,6 +12,7 @@
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/TriangleMesh.hpp"
+#include "libslic3r/AABBMesh.hpp"
 
 #include <memory>
 #include <optional>
@@ -777,6 +778,77 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
 
             assert(mesh_idx < int(m_triangle_selectors.size()));
             const TriangleSelector::ClippingPlane &clp = this->get_clipping_plane_in_volume_coordinates(trafo_matrix);
+
+            // Two-sided painting: shoot a ray through the hit point and paint the opposite face.
+            // For brush tools, uses a sphere cursor for reliable back-face coverage.
+            // For fill/smart-fill tools, mirrors the same fill operation on the opposite face.
+            // hit2/facet2 are optional: when provided, a DoublePointCursor is used on the back face
+            // to fill the gap between two consecutive brush positions (fixes spotty line when moving fast).
+            // front_fill_radius limits back-face flood fill to match the front-face fill extent.
+            auto paint_opposite_side = [&](const Vec3f& hit, int facet_idx,
+                                           const Vec3f* hit2 = nullptr, int facet2 = -1,
+                                           float front_fill_radius = 0.f) {
+                if (!m_two_sided_painting) return;
+                const Vec3f nrm = m_c->raycaster()->raycasters()[mesh_idx]->get_triangle_normal(facet_idx);
+                const AABBMesh& aabb = m_c->raycaster()->raycasters()[mesh_idx]->get_aabb_mesh();
+                Vec3d ray_dir    = -nrm.cast<double>();
+                Vec3d ray_origin = hit.cast<double>() - nrm.cast<double>() * 1e-4;
+                Vec3f opp_hit;
+                int   opp_facet = -1;
+                for (const auto& h : aabb.query_ray_hits(ray_origin, ray_dir)) {
+                    if (!h.is_hit() || h.face() == facet_idx) continue;
+                    opp_hit   = h.position().cast<float>();
+                    opp_facet = h.face();
+                    break;
+                }
+                if (opp_facet == -1) return;
+
+                if (m_tool_type == ToolType::SMART_FILL) {
+                    m_triangle_selectors[mesh_idx]->seed_fill_select_triangles(
+                        opp_hit, opp_facet, trafo_matrix_not_translate, clp,
+                        m_smart_fill_angle, 0.f, true);
+                    m_triangle_selectors[mesh_idx]->seed_fill_apply_on_triangles(new_state);
+                } else if (m_tool_type == ToolType::BUCKET_FILL ||
+                           (m_tool_type == ToolType::BRUSH && m_cursor_type == TriangleSelector::CursorType::POINTER)) {
+                    m_triangle_selectors[mesh_idx]->bucket_fill_select_triangles(
+                        opp_hit, opp_facet, clp,
+                        m_tool_type == ToolType::BUCKET_FILL ? m_smart_fill_angle : -1.f,
+                        m_tool_type == ToolType::BUCKET_FILL, true, front_fill_radius);
+                    m_triangle_selectors[mesh_idx]->seed_fill_apply_on_triangles(new_state);
+                } else {
+                    // BRUSH — use sphere on opposite side for reliable back-face coverage.
+                    // If a second point is provided, use DoublePointCursor to fill the gap when moving fast.
+                    if (hit2 != nullptr) {
+                        Vec3f opp_hit2;
+                        int   opp_facet2 = -1;
+                        Vec3d ray_origin2 = hit2->cast<double>() - nrm.cast<double>() * 1e-4;
+                        for (const auto& h2 : aabb.query_ray_hits(ray_origin2, ray_dir)) {
+                            if (!h2.is_hit() || h2.face() == facet2) continue;
+                            opp_hit2   = h2.position().cast<float>();
+                            opp_facet2 = h2.face();
+                            break;
+                        }
+                        if (opp_facet2 != -1) {
+                            std::unique_ptr<TriangleSelector::Cursor> opp_cursor =
+                                TriangleSelector::DoublePointCursor::cursor_factory(
+                                    opp_hit, opp_hit2, camera_pos, m_cursor_radius,
+                                    TriangleSelector::CursorType::SPHERE, trafo_matrix, clp);
+                            m_triangle_selectors[mesh_idx]->select_patch(
+                                opp_facet, std::move(opp_cursor), new_state,
+                                trafo_matrix_not_translate, m_triangle_splitting_enabled, 0.f);
+                            return;
+                        }
+                    }
+                    std::unique_ptr<TriangleSelector::Cursor> opp_cursor =
+                        TriangleSelector::SinglePointCursor::cursor_factory(
+                            opp_hit, camera_pos, m_cursor_radius,
+                            TriangleSelector::CursorType::SPHERE, trafo_matrix, clp);
+                    m_triangle_selectors[mesh_idx]->select_patch(
+                        opp_facet, std::move(opp_cursor), new_state,
+                        trafo_matrix_not_translate, m_triangle_splitting_enabled, 0.f);
+                }
+            };
+
             if (m_tool_type == ToolType::SMART_FILL || m_tool_type == ToolType::BUCKET_FILL || (m_tool_type == ToolType::BRUSH && m_cursor_type == TriangleSelector::CursorType::POINTER)) {
                 for(const ProjectedMousePosition &projected_mouse_position : projected_mouse_positions) {
                     assert(projected_mouse_position.mesh_idx == mesh_idx);
@@ -793,6 +865,14 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                         // BBS: add infill_angle parameter
                         m_triangle_selectors[mesh_idx]->bucket_fill_select_triangles(mesh_hit, facet_idx, clp, m_smart_fill_angle, true, true);
 
+                    // Apply the front-face fill now, before paint_opposite_side wipes the pending selection.
+                    // Capture the fill's spatial extent first so we can cap the back-face fill to match.
+                    float front_fill_radius = 0.f;
+                    if (m_two_sided_painting) {
+                        front_fill_radius = m_triangle_selectors[mesh_idx]->seed_fill_bounding_radius(mesh_hit);
+                        m_triangle_selectors[mesh_idx]->seed_fill_apply_on_triangles(new_state);
+                    }
+                    paint_opposite_side(mesh_hit, facet_idx, nullptr, -1, front_fill_radius);
                     m_seed_fill_last_mesh_id = -1;
                 }
             } else if (m_tool_type == ToolType::BRUSH) {
@@ -805,11 +885,14 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                                                                                                                                    m_cursor_type, trafo_matrix, clp);
                     m_triangle_selectors[mesh_idx]->select_patch(int(first_position.facet_idx), std::move(cursor), new_state, trafo_matrix_not_translate,
                                                                  m_triangle_splitting_enabled, m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f);
+                    paint_opposite_side(first_position.mesh_hit, int(first_position.facet_idx));
                 } else {
                     for (auto first_position_it = projected_mouse_positions.cbegin(); first_position_it != projected_mouse_positions.cend() - 1; ++first_position_it) {
                         auto second_position_it = first_position_it + 1;
                         std::unique_ptr<TriangleSelector::Cursor> cursor = TriangleSelector::DoublePointCursor::cursor_factory(first_position_it->mesh_hit, second_position_it->mesh_hit, camera_pos, m_cursor_radius, m_cursor_type, trafo_matrix, clp);
                         m_triangle_selectors[mesh_idx]->select_patch(int(first_position_it->facet_idx), std::move(cursor), new_state, trafo_matrix_not_translate, m_triangle_splitting_enabled, m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f);
+                        paint_opposite_side(first_position_it->mesh_hit, int(first_position_it->facet_idx),
+                                            &second_position_it->mesh_hit, int(second_position_it->facet_idx));
                     }
                 }
             }

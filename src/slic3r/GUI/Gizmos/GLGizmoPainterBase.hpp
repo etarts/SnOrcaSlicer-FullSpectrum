@@ -290,6 +290,7 @@ protected:
     // Orca: paint behavior enchancement
     bool m_vertical_only = false;
     bool m_horizontal_only = false;
+    bool m_two_sided_painting = false;
 
     // It stores the value of the previous mesh_id to which the seed fill was applied.
     // It is used to detect when the mouse has moved from one volume to another one.

@@ -3497,6 +3497,7 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
                         default_self_expolygons = intersection_ex(parent_layer_region.slices.surfaces, default_segmentation);
                     std::vector<bool> assigned_extruder(by_extruder.size(), false);
                     std::vector<int>  alias_to_self_extruders;
+                    const float MM_REGION_OVERLAP = float(print_object.config().mm_color_overlap.value);
                     for (int extruder_id = 1; extruder_id <= int(by_extruder.size()); ++extruder_id) {
                         const ByExtruder &segmented = by_extruder[extruder_id - 1];
                         if (!segmented.bbox.defined || !parent_layer_region_bbox.overlap(segmented.bbox))
@@ -3535,9 +3536,15 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
 
                         assigned_extruder[size_t(extruder_id - 1)] = true;
 
-                        // Steal from this region.
+                        // Steal from the base region, expanding by overlap amount so the painted
+                        // region extends slightly into adjacent territory. The base is NOT trimmed
+                        // by the expanded boundary (see self-trim below), so both the painted region
+                        // and the base will print in the overlap zone, creating physical fusion.
                         int        target_region_id = it_target_region->region->print_object_region_id();
-                        ExPolygons stolen           = intersection_ex(parent_layer_region.slices.surfaces, segmented.expolygons);
+                        ExPolygons stolen = intersection_ex(parent_layer_region.slices.surfaces,
+                            MM_REGION_OVERLAP > 0.f
+                                ? offset_ex(segmented.expolygons, float(scale_(MM_REGION_OVERLAP)))
+                                : ExPolygons(segmented.expolygons));
                         if (!stolen.empty()) {
                             ByRegion &dst = by_region[target_region_id];
                             SurfaceCollection stolen_surfaces = intersect_surfaces_preserve_types(parent_layer_region.slices, stolen);
@@ -3548,6 +3555,50 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
                             } else {
                                 dst.surfaces.append(std::move(stolen_surfaces));
                                 dst.needs_merge = true;
+                            }
+                        }
+                    }
+
+                    // For adjacent painted regions (no base between them), each expands into the
+                    // other's territory so both colors print in the overlap zone at the boundary.
+                    if (MM_REGION_OVERLAP > 0.f) {
+                        for (int ext_a = 1; ext_a <= int(by_extruder.size()); ++ext_a) {
+                            if (!assigned_extruder[ext_a - 1]) continue;
+                            const ByExtruder &seg_a = by_extruder[ext_a - 1];
+                            if (!seg_a.bbox.defined || seg_a.expolygons.empty()) continue;
+                            auto it_a = std::find_if(layer_range.painted_regions.cbegin(), layer_range.painted_regions.cend(),
+                                [&](const auto &pr) {
+                                    return layer_range.volume_regions[pr.parent].region == &parent_print_region &&
+                                           int(pr.extruder_id) == ext_a;
+                                });
+                            if (it_a == layer_range.painted_regions.cend()) continue;
+                            int target_a = it_a->region->print_object_region_id();
+                            ExPolygons expanded_a = offset_ex(seg_a.expolygons, float(scale_(MM_REGION_OVERLAP)));
+                            for (int ext_b = ext_a + 1; ext_b <= int(by_extruder.size()); ++ext_b) {
+                                if (!assigned_extruder[ext_b - 1]) continue;
+                                const ByExtruder &seg_b = by_extruder[ext_b - 1];
+                                if (!seg_b.bbox.defined || seg_b.expolygons.empty()) continue;
+                                if (!seg_a.bbox.overlap(seg_b.bbox)) continue;
+                                auto it_b = std::find_if(layer_range.painted_regions.cbegin(), layer_range.painted_regions.cend(),
+                                    [&](const auto &pr) {
+                                        return layer_range.volume_regions[pr.parent].region == &parent_print_region &&
+                                               int(pr.extruder_id) == ext_b;
+                                    });
+                                if (it_b == layer_range.painted_regions.cend()) continue;
+                                int target_b = it_b->region->print_object_region_id();
+                                ExPolygons overlap_ab = intersection_ex(seg_b.expolygons, expanded_a);
+                                if (!overlap_ab.empty()) {
+                                    ByRegion &dst = by_region[target_a];
+                                    append(dst.expolygons, overlap_ab);
+                                    dst.needs_merge = true;
+                                }
+                                ExPolygons expanded_b = offset_ex(seg_b.expolygons, float(scale_(MM_REGION_OVERLAP)));
+                                ExPolygons overlap_ba = intersection_ex(seg_a.expolygons, expanded_b);
+                                if (!overlap_ba.empty()) {
+                                    ByRegion &dst = by_region[target_b];
+                                    append(dst.expolygons, overlap_ba);
+                                    dst.needs_merge = true;
+                                }
                             }
                         }
                     }

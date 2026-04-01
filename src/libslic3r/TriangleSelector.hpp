@@ -324,7 +324,8 @@ public:
                                       const ClippingPlane &clp,                        // Clipping plane to limit painting to not clipped facets only
                                       float                seed_fill_angle,            // BBS: the maximal angle between two facets to be painted by the same color
                                       bool                 propagate,                  // if bucket fill is propagated to neighbor faces or if it fills the only facet of the modified mesh that the hit point belongs to.
-                                      bool                 force_reselection = false); // force reselection of the triangle mesh even in cases that mouse is pointing on the selected triangle
+                                      bool                 force_reselection = false,  // force reselection of the triangle mesh even in cases that mouse is pointing on the selected triangle
+                                      float                max_distance      = 0.f);   // if > 0, limits fill to triangles whose centroid is within this distance from hit (mesh coords)
 
     bool                 has_facets(EnforcerBlockerType state) const;
     static bool          has_facets(const TriangleSplittingData &data, EnforcerBlockerType test_state);
@@ -373,6 +374,10 @@ public:
     // For all triangles selected by seed fill, set new EnforcerBlockerType and remove flag indicating that triangle was selected by seed fill.
     // The operation may merge split triangles if they are being assigned the same color.
     void seed_fill_apply_on_triangles(EnforcerBlockerType new_state);
+
+    // Returns the maximum distance from center to any seed-fill-selected triangle centroid (mesh coords).
+    // Returns 0 if no triangles are seed-fill selected. Used to cap opposite-side fill in two-sided painting.
+    float seed_fill_bounding_radius(const Vec3f &center) const;
 
 protected:
     // Triangle and info about how it's split.

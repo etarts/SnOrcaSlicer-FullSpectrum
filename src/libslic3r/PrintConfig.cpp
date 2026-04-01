@@ -3434,6 +3434,15 @@ void PrintConfigDef::init_fff_params()
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
 
+    def           = this->add("mm_color_overlap", coFloat);
+    def->label    = L("Color overlap");
+    def->tooltip  = L("Expands the boundary of each color region into adjacent regions, helping single-wall multicolor prints fuse together at color changes. Recommended range: 0 to 0.5 mm.");
+    def->sidetext = "mm";
+    def->min      = 0;
+    def->category = L("Advanced");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
     def           = this->add("mmu_segmented_region_interlocking_depth", coFloat);
     def->label    = L("Interlocking depth of a segmented region");
     def->tooltip  = L("Interlocking depth of a segmented region. It will be ignored if "

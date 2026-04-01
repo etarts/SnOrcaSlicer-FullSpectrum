@@ -479,7 +479,7 @@ void TriangleSelector::append_touching_edges(int itriangle, int vertexi, int ver
 }
 
 // BBS: add seed_fill_angle parameter
-void TriangleSelector::bucket_fill_select_triangles(const Vec3f& hit, int facet_start, const ClippingPlane &clp, float seed_fill_angle, bool propagate, bool force_reselection)
+void TriangleSelector::bucket_fill_select_triangles(const Vec3f& hit, int facet_start, const ClippingPlane &clp, float seed_fill_angle, bool propagate, bool force_reselection, float max_distance)
 {
     int start_facet_idx = select_unsplit_triangle(hit, facet_start);
     assert(start_facet_idx != -1);
@@ -537,6 +537,14 @@ void TriangleSelector::bucket_fill_select_triangles(const Vec3f& hit, int facet_
                 const Vec3f& n2 = m_face_normals[m_triangles[current_facet].source_triangle];
                 if (seed_fill_angle >= -EPSILON && std::clamp(n1.dot(n2), 0.f, 1.f) < facet_angle_limit)
                     continue;
+
+                if (max_distance > 0.f) {
+                    const Vec3f centroid = (m_vertices[m_triangles[tr_idx].verts_idxs[0]].v +
+                                            m_vertices[m_triangles[tr_idx].verts_idxs[1]].v +
+                                            m_vertices[m_triangles[tr_idx].verts_idxs[2]].v) / 3.f;
+                    if ((centroid - hit).norm() > max_distance)
+                        continue;
+                }
 
                 assert(!m_triangles[tr_idx].is_split());
                 facet_queue.push(tr_idx);
@@ -1996,6 +2004,20 @@ void TriangleSelector::seed_fill_apply_on_triangles(EnforcerBlockerType new_stat
             size_t facet_idx = &triangle - &m_triangles.front();
             remove_useless_children(int(facet_idx));
         }
+}
+
+float TriangleSelector::seed_fill_bounding_radius(const Vec3f &center) const
+{
+    float max_dist_sq = 0.f;
+    for (const Triangle &triangle : m_triangles) {
+        if (!triangle.is_split() && triangle.is_selected_by_seed_fill()) {
+            const Vec3f centroid = (m_vertices[triangle.verts_idxs[0]].v +
+                                    m_vertices[triangle.verts_idxs[1]].v +
+                                    m_vertices[triangle.verts_idxs[2]].v) / 3.f;
+            max_dist_sq = std::max(max_dist_sq, (centroid - center).squaredNorm());
+        }
+    }
+    return std::sqrt(max_dist_sq);
 }
 
 TriangleSelector::Cursor::Cursor(const Vec3f &source_, float radius_world, const Transform3d &trafo_, const ClippingPlane &clipping_plane_)
