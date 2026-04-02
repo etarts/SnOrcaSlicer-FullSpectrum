@@ -289,6 +289,7 @@ AboutDialog::AboutDialog()
         vesizer->Add(0, 0, 1, wxEXPAND, FromDIP(5));
     }
 
+
     wxBoxSizer *text_sizer_horiz = new wxBoxSizer(wxHORIZONTAL);
     wxBoxSizer *text_sizer = new wxBoxSizer(wxVERTICAL);
     text_sizer_horiz->Add( 0, 0, 0, wxLEFT, FromDIP(20));
