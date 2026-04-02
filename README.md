@@ -97,6 +97,27 @@ These settings give you precise control over how your mixed colors appear in the
 - Layer-based alternation is computed during tool ordering
 - Works with all existing features: supports, infill, and multi-material painting
 
+---
+
+## Multi-Material Painting Improvements
+
+### Two-Sided Painting
+When painting color regions on a model, enabling **Two-sided** in the paint gizmo toolbar automatically paints the opposite face of the mesh at the same time. This is useful for thin-walled models where you want both the inside and outside faces painted with the same color without having to rotate the model.
+
+- Works with all brush tools: sphere, circle, triangle, smart fill, and bucket fill
+- The circle brush uses interpolation between cursor positions for smooth, gap-free strokes even when moving quickly
+- Fill tools (smart fill, bucket fill) paint the front and back selections independently, preventing one from overwriting the other
+- The fill extent on the back face is capped to match the front face area, so paint does not bleed past color boundaries on the opposite side
+- The **Two-sided** checkbox appears directly below the tool icons in the paint toolbar
+
+### Color Overlap (mm_color_overlap)
+Found in **Print Settings → Others → Advanced**, the **Color Overlap** setting (in mm) expands painted color regions slightly into adjacent regions at color boundaries. This creates a physical fusion zone where both colors print, closing the micro-gap that can appear at color transitions on single-wall multicolor prints.
+
+- Set to `0` (default) for standard behavior with clean color boundaries
+- Values of `0.1`–`0.3` mm are typical for closing visible gaps
+- Applies to both painted-to-base boundaries and painted-to-painted boundaries
+- Changing the value automatically triggers a reslice
+
 # How to install
 **Windows**: 
 1.  Download the installer for your preferred version from the [releases page](https://github.com/ratdoux/OrcaSlicer-FullSpectrum/releases).
