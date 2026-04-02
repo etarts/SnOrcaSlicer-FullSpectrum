@@ -252,7 +252,7 @@ AboutDialog::AboutDialog()
         wxStaticText* version = new wxStaticText(this, wxID_ANY, _L("Snapmaker Orca FullSpectrum"), wxDefaultPosition, wxSize(title_wrap_width, -1), wxALIGN_CENTER_HORIZONTAL);
         wxStaticText* sm_version = new wxStaticText(this, wxID_ANY, sm_version_label, wxDefaultPosition, wxSize(title_wrap_width, -1), wxALIGN_CENTER_HORIZONTAL);
         wxStaticText* fs_version = new wxStaticText(this, wxID_ANY, fs_version_label, wxDefaultPosition, wxSize(title_wrap_width, -1), wxALIGN_CENTER_HORIZONTAL);
-        wxStaticText* bs_version = new wxStaticText(this, wxID_ANY, wxString::Format("Based on Orca Slicer"), wxDefaultPosition, wxDefaultSize);
+        wxStaticText* bs_version = new wxStaticText(this, wxID_ANY, wxString::Format("Based on Orca Slicer  |  fullspectrum-two-sides"), wxDefaultPosition, wxDefaultSize);
         bs_version->SetFont(Label::Body_12);
         sm_version->SetFont(Label::Body_12);
         fs_version->SetFont(Label::Body_12);
