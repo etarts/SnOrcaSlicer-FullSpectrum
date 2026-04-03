@@ -338,7 +338,7 @@ static std::vector<std::vector<ExPolygons>> slices_to_regions(
         }
         tbb::parallel_for(
             tbb::blocked_range<size_t>(0, zs_complex.size()),
-            [&slices_by_region, &print_object_regions, &zs_complex, &layer_ranges_regions_to_slices, clip_multipart_objects, &throw_on_cancel_callback]
+            [&slices_by_region, &print_object_regions, &zs_complex, &layer_ranges_regions_to_slices, clip_multipart_objects, &throw_on_cancel_callback, &print_object]
                 (const tbb::blocked_range<size_t> &range) {
                 float z              = zs_complex[range.begin()].second;
                 auto  it_layer_range = layer_range_first(print_object_regions.layer_ranges, z);
@@ -412,7 +412,11 @@ static std::vector<std::vector<ExPolygons>> slices_to_regions(
                                 if (parent_slice.expolygons.empty()) {
                                     this_slice  .expolygons.clear();
                                 } else {
-                                    this_slice  .expolygons = intersection_ex(parent_slice.expolygons, source);
+                                    const float mm_overlap = float(print_object.config().mm_color_overlap.value);
+                                    ExPolygons steal_source = mm_overlap > 0.f
+                                        ? offset_ex(source, float(scale_(mm_overlap)))
+                                        : ExPolygons(source);
+                                    this_slice  .expolygons = intersection_ex(parent_slice.expolygons, steal_source);
                                     parent_slice.expolygons = diff_ex        (parent_slice.expolygons, source);
                                 }
                                 if (next_region_same_modifier)
