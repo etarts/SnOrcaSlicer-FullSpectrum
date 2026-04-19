@@ -803,6 +803,13 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                 }
                 if (opp_facet == -1) return;
 
+                // Guard: skip if opp_facet is not genuinely on the opposite side.
+                // Near steep edges the through-ray can exit through a side/perpendicular face.
+                // Check that opp_nrm opposes nrm (dot < -0.1, i.e. >~96° apart) rather than
+                // using a camera-facing test, which rejects valid back faces on curved models.
+                const Vec3f opp_nrm = m_c->raycaster()->raycasters()[mesh_idx]->get_triangle_normal(opp_facet);
+                if (nrm.dot(opp_nrm) > -0.1f) return;
+
                 if (m_tool_type == ToolType::SMART_FILL) {
                     m_triangle_selectors[mesh_idx]->seed_fill_select_triangles(
                         opp_hit, opp_facet, trafo_matrix_not_translate, clp,
@@ -821,7 +828,7 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                     if (hit2 != nullptr) {
                         Vec3f opp_hit2;
                         int   opp_facet2 = -1;
-                        Vec3d ray_origin2 = hit2->cast<double>() - nrm.cast<double>() * 1e-4;
+                        const Vec3d ray_origin2 = hit2->cast<double>() - nrm.cast<double>() * 1e-4;
                         for (const auto& h2 : aabb.query_ray_hits(ray_origin2, ray_dir)) {
                             if (!h2.is_hit() || h2.face() == facet2) continue;
                             opp_hit2   = h2.position().cast<float>();
@@ -829,6 +836,8 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                             break;
                         }
                         if (opp_facet2 != -1) {
+                            // opp_hit is already guarded (not a visible face), so using
+                            // DoublePointCursor here fills the gap without risk of glitches.
                             std::unique_ptr<TriangleSelector::Cursor> opp_cursor =
                                 TriangleSelector::DoublePointCursor::cursor_factory(
                                     opp_hit, opp_hit2, camera_pos, m_cursor_radius,
